@@ -104,6 +104,9 @@ function ug_desired(array $cfg, array $mapping, array $net): array {
         $state = $net['network'];
         // 网络灯闪烁由 netdev 内核触发器自动处理，这里只设置颜色和亮度。
         $desired['netdev'] = ug_style($cfg['netdev_colors'][$state], (int)$cfg['netdev_brightness'][$state], false);
+        if (!isset($desired['netdev']['off'])) {
+            $desired['netdev']['trigger'] = $state === 'connected' && $cfg['activity']['network_blink'] === 'true' ? 'netdev' : 'none';
+        }
     }
     return $desired;
 }
@@ -137,8 +140,24 @@ function ug_sysfs_init(): void {
 }
 function ug_apply_led_state(string $led, array $intent): void {
     if (($intent['off'] ?? false)) {
-        ug_sysfs_write($led, 'brightness', '0');
+        // 硬盘灯用 color 0 0 0 熄灭以保持 oneshot 触发器（写 brightness 0 会重置触发器、
+        // 使 shot 节点消失，导致恢复后活动闪烁失败）。
+        if (str_starts_with($led, 'disk')) ug_sysfs_write($led, 'color', '0 0 0');
+        else ug_sysfs_write($led, 'brightness', '0');
         return;
+    }
+    if ($led === 'netdev') {
+        $trigger = $intent['trigger'] ?? 'none';
+        if (!str_contains(ug_read(ug_path('leds') . '/netdev/trigger') ?? '', '[' . $trigger . ']')) {
+            ug_sysfs_write('netdev', 'trigger', $trigger);
+        }
+        if ($trigger === 'netdev') {
+            ug_sysfs_write('netdev', 'device_name', ug_net_iface());
+            ug_sysfs_write('netdev', 'link', '1');
+            ug_sysfs_write('netdev', 'tx', '1');
+            ug_sysfs_write('netdev', 'rx', '1');
+            ug_sysfs_write('netdev', 'interval', '500');
+        }
     }
     ug_sysfs_write($led, 'color', $intent['color']);
     ug_sysfs_write($led, 'brightness', (string)$intent['brightness']);
@@ -159,6 +178,8 @@ function ug_apply(array $desired, string $generation): void {
                 ug_json_write('led-cache', $cache);
             }
             if ($blink && str_starts_with($led, 'disk')) {
+                // 防御性恢复 oneshot 触发器，避免 shot 节点因外部操作丢失。
+                if (!is_writable(ug_path('leds') . '/' . $led . '/shot')) ug_sysfs_write($led, 'trigger', 'oneshot');
                 ug_sysfs_write($led, 'shot', '1');
             }
         }

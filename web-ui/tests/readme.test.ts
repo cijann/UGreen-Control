@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { parseIni } from '../src/lib/ini.ts';
 import { test } from 'node:test';
 import { readmeHref, readmeImageSrc, readmeInlineTokens } from '../src/lib/readme.ts';
+
+test('quoted Unraid settings preserve RGB, brightness and boolean values', () => {
+  assert.deepEqual(parseIni('[disk_colors]\nidle="255 255 255"\n[power]\nbrightness="128"\n[behavior]\nmanage_power="false"\n[activity]\ndisk_blink=true'), {
+    disk_colors: { idle: '255 255 255' }, power: { brightness: '128' }, behavior: { manage_power: 'false' }, activity: { disk_blink: 'true' },
+  });
+});
 
 test('relative README images resolve to repository content instead of the NAS page', () => {
   for (const path of ['docs/assets/donate/alipay.jpg', './docs/assets/donate/alipay.jpg']) {

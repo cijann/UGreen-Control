@@ -4,9 +4,9 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $root = sys_get_temp_dir() . '/ugreen-phase2-' . bin2hex(random_bytes(6));
 mkdir($root, 0700, true);
-foreach (['run', 'boot', 'emhttp', 'proc', 'block', 'net'] as $dir) mkdir($root . '/' . $dir, 0700);
+foreach (['run', 'boot', 'emhttp', 'proc', 'block', 'net', 'leds'] as $dir) mkdir($root . '/' . $dir, 0700);
 define('UGREEN_PHASE2_FIXTURE', ['runtime' => "$root/run", 'boot' => "$root/boot", 'log' => "$root/service.log",
-    'emhttp' => "$root/emhttp", 'proc' => "$root/proc", 'block' => "$root/block", 'net' => "$root/net", 'dmi' => "$root/dmi", 'cli' => "$root/not-a-cli"]);
+    'emhttp' => "$root/emhttp", 'proc' => "$root/proc", 'block' => "$root/block", 'net' => "$root/net", 'dmi' => "$root/dmi", 'cli' => "$root/not-a-cli", 'leds' => "$root/leds"]);
 define('UGREEN_API_TEST_ONLY', true);
 require dirname(__DIR__) . '/api.php';
 $count = 0;
@@ -94,6 +94,21 @@ try {
     $desired = ug_desired($cfg, [$row], $net);
     check(($desired['disk1']['blink'] ?? false) === true && ($desired['netdev']['blink'] ?? false) === false, '硬盘活动闪动走 blink 标志，网络灯交给 netdev 触发器');
     check($desired['disk1']['color'] === '255 255 255', '用户白色活动灯');
+    check($desired['netdev']['trigger'] === 'netdev', '智能网络灯启用流量触发器');
+    foreach (['disk1', 'netdev'] as $led) {
+        mkdir("$root/leds/$led");
+        foreach (['color', 'brightness', 'trigger', 'shot', 'device_name', 'link', 'tx', 'rx', 'interval'] as $attr) file_put_contents("$root/leds/$led/$attr", '');
+    }
+    file_put_contents("$root/leds/disk1/trigger", '[oneshot]');
+    file_put_contents("$root/leds/disk1/brightness", '180');
+    ug_apply_led_state('disk1', ['off' => true]);
+    check(file_get_contents("$root/leds/disk1/color") === '0 0 0' && file_get_contents("$root/leds/disk1/brightness") === '180', '硬盘熄灭不写 brightness=0');
+    ug_apply_led_state('disk1', ['color' => '255 255 255', 'brightness' => 180]);
+    check(file_get_contents("$root/leds/disk1/trigger") === '[oneshot]', '硬盘重新点亮保留 oneshot');
+    ug_apply_led_state('netdev', ['off' => true]);
+    file_put_contents("$root/leds/netdev/trigger", '[none]');
+    ug_apply_led_state('netdev', $desired['netdev']);
+    check(file_get_contents("$root/leds/netdev/trigger") === 'netdev' && file_get_contents("$root/leds/netdev/tx") === '1', '网络灯关闭后恢复流量触发器');
     $cfg['mode']['global'] = 'off';
     check(count(ug_desired($cfg, [], $net)) === 6 && ug_desired($cfg, [], $net)['disk4'] === ['off' => true], 'off 管理六灯');
     $cfg['behavior']['manage_power'] = $cfg['behavior']['manage_netdev'] = 'false';

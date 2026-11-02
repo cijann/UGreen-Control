@@ -13,7 +13,11 @@ export function parseIni(raw: string): IniData {
       continue;
     }
     const index = line.indexOf('=');
-    if (index > 0 && section) data[section][line.slice(0, index).trim()] = line.slice(index + 1).trim();
+    if (index > 0 && section) {
+      const rawValue = line.slice(index + 1).trim();
+      const quoted = rawValue.length >= 2 && ((rawValue.startsWith('"') && rawValue.endsWith('"')) || (rawValue.startsWith("'") && rawValue.endsWith("'")));
+      data[section][line.slice(0, index).trim()] = quoted ? rawValue.slice(1, -1) : rawValue;
+    }
   }
   return data;
 }
