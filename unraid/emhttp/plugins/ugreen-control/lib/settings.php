@@ -8,6 +8,7 @@ function ug_path(string $key): string {
         'log' => '/var/log/ugreen-control.log', 'emhttp' => '/var/local/emhttp',
         'proc' => '/proc', 'block' => '/sys/class/block', 'net' => '/sys/class/net',
         'dmi' => '/sys/class/dmi/id/product_name',
+        'leds' => '/sys/class/leds', 'i2cdev' => '/sys/class/i2c-dev', 'bus_i2c' => '/sys/bus/i2c/devices',
         'cli' => dirname(__DIR__) . '/server/bin/ugreen_leds_cli',
     ];
     if (PHP_SAPI === 'cli' && defined('UGREEN_PHASE2_FIXTURE')) {

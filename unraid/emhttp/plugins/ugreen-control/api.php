@@ -364,9 +364,6 @@ function route_hardware_status(): array {
     $fans = fan_rows($profile, $it_dir);
     $disk_rows = hardware_disk_rows($disks);
 
-    $modules_raw = safe_read('/proc/modules');
-    $led_conflict = $modules_raw === null ? null : preg_match('/^led_ugreen\s/m', $modules_raw) === 1;
-
     return [
         'ok'               => true,
         'product_name'     => $product,
@@ -376,15 +373,15 @@ function route_hardware_status(): array {
         'kernel'           => $kernel,
         'disk_count'       => $disk_count,
         'netdev_count'     => $profile === null ? null : ($profile === 'dxp480t_plus' ? 0 : 1),
-        'backend_active'   => ug_service_status()['running'] ? 'cli' : null,
+        'backend_active'   => ug_service_status()['running'] ? 'sysfs' : null,
         'phase2'           => true,
         'capabilities'     => ['lighting' => true, 'bios' => false],
         'daemon'           => ug_service_status()['state'],
         'daemon_state'     => ug_service_status(),
         'mode'             => ug_settings()['mode']['global'],
         'write_model_supported' => $product === 'DX4600',
-        'led_plugin_conflict' => $led_conflict,
-        'led_plugin_modules'  => $led_conflict ? 'led_ugreen' : null,
+        'led_plugin_conflict' => false,
+        'led_plugin_modules'  => null,
         'driver_conflict'  => null,
         'cli_version'      => null,
         // Unraid-specific hardware telemetry for the hardware overview card.
@@ -514,10 +511,10 @@ function route_readme(): array {
     return [
         'ok' => true,
         'content' => "# UGreen Control：Unraid 第二阶段 LED 服务\n\n"
-            . "仅精确 DX4600 支持 LED 写入，统一调用随包 server/bin/ugreen_leds_cli。\n\n"
+            . "仅精确 DX4600 支持 LED 写入，通过 led-ugreen 内核驱动的 /sys/class/leds 节点稳定控制（规避用户态直写 MCU 的 ACK 失败）。\n\n"
             . "默认沿用原始 INI 灯色、亮度和活动闪动开关；磁盘活动由 /proc/diskstats 采样，休眠来自 disks.ini，不查询磁盘电源。\n\n"
             . "SATA 灯位为端口推定，未目视校准；可用当前 SATA 序列号显式绑定。网口固定 eth0，显示物理链路、速率与 KiB/s 流量，默认已连接为蓝色。\n\n"
-            . "自动启动在阵列 STARTED 后延迟 300 秒（可设 60..3600）。手动启动立即排入 at。停止会取消排队任务并等待当前 CLI 退出，保留最后灯态；需要关闭全部请选 off。\n\n"
+            . "自动启动在阵列 STARTED 后延迟 300 秒（可设 60..3600），此时才加载内核驱动。手动启动立即排入 at。停止会取消排队任务并等待守护进程退出，保留最后灯态；需要关闭全部请选 off。\n\n"
             . "BIOS、风扇控制未启用。POST 独立校验 Unraid 会话与 X-CSRF-Token；页面通过 GET /session 获取 token。保存灯光设置不重启服务，下一轮刷新生效。", 
         'source_url' => null,
         'source' => 'local',

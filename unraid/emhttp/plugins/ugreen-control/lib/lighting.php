@@ -76,15 +76,9 @@ function ug_network(?array $before, float $now): array {
     }
     return $result;
 }
-function ug_style(string $color, int $brightness, bool $blink = false, float $speed = 0, int $threshold = 1): array {
-    if ($color === 'off' || $brightness === 0) return ['-off'];
-    $args = ['-color', ...explode(' ', $color), '-brightness', (string)$brightness];
-    if ($blink) {
-        $period = $speed >= $threshold * 16 ? 260 : ($speed >= $threshold * 4 ? 480 : 820);
-        $on = max(80, min(240, (int)($period / 3)));
-        return [...$args, '-blink', (string)$on, (string)($period - $on)];
-    }
-    return [...$args, '-on'];
+function ug_style(string $color, int $brightness, bool $blink = false): array {
+    if ($color === 'off' || $brightness === 0) return ['off' => true];
+    return ['color' => $color, 'brightness' => $brightness, 'blink' => $blink];
 }
 function ug_desired(array $cfg, array $mapping, array $net): array {
     $desired = []; $mode = $cfg['mode']['global'];
@@ -92,7 +86,7 @@ function ug_desired(array $cfg, array $mapping, array $net): array {
     if ($cfg['behavior']['manage_power'] === 'true') $slots[] = 'power';
     if ($cfg['behavior']['manage_netdev'] === 'true') $slots[] = 'netdev';
     if ($mode !== 'smart') {
-        foreach ($slots as $slot) $desired[$slot] = $mode === 'off' ? ['-off'] : ug_style($cfg['power']['all_on_color'], (int)($slot === 'power' ? $cfg['power']['brightness'] : $cfg['disk_brightness']['active']));
+        foreach ($slots as $slot) $desired[$slot] = $mode === 'off' ? ['off' => true] : ug_style($cfg['power']['all_on_color'], (int)($slot === 'power' ? $cfg['power']['brightness'] : $cfg['disk_brightness']['active']));
         return $desired;
     }
     foreach (['disk1', 'disk2', 'disk3', 'disk4'] as $slot) $desired[$slot] = ug_style($cfg['disk_colors']['offline'], (int)$cfg['disk_brightness']['offline']);
@@ -103,42 +97,70 @@ function ug_desired(array $cfg, array $mapping, array $net): array {
         $speed = ($row['read_kbps'] ?? 0) + ($row['write_kbps'] ?? 0);
         $threshold = (int)$cfg['activity']['disk_threshold_kbps'];
         $blink = $state === 'active' && $cfg['activity']['disk_blink'] === 'true' && $speed >= $threshold;
-        $desired[$row['led']] = ug_style($cfg['disk_colors'][$state], (int)$cfg['disk_brightness'][$state], $blink, $speed, $threshold);
+        $desired[$row['led']] = ug_style($cfg['disk_colors'][$state], (int)$cfg['disk_brightness'][$state], $blink);
     }
     if ($cfg['behavior']['manage_power'] === 'true') $desired['power'] = ug_style($cfg['power']['smart_color'], (int)$cfg['power']['brightness']);
     if ($cfg['behavior']['manage_netdev'] === 'true' && $net['network'] !== null) {
-        $state = $net['network']; $threshold = (int)$cfg['activity']['network_threshold_kbps'];
-        $speed = ($net['rx_kbps'] ?? 0) + ($net['tx_kbps'] ?? 0);
-        $blink = $state === 'connected' && $cfg['activity']['network_blink'] === 'true' && $speed >= $threshold;
-        $desired['netdev'] = ug_style($cfg['netdev_colors'][$state], (int)$cfg['netdev_brightness'][$state], $blink, $speed, $threshold);
+        $state = $net['network'];
+        // 网络灯闪烁由 netdev 内核触发器自动处理，这里只设置颜色和亮度。
+        $desired['netdev'] = ug_style($cfg['netdev_colors'][$state], (int)$cfg['netdev_brightness'][$state], false);
     }
     return $desired;
+}
+function ug_net_iface(): string {
+    $cfg = ug_read('/boot/config/network.cfg') ?? '';
+    if (preg_match('/IFNAME\[0\]\s*=\s*"?([a-zA-Z0-9_.:-]+)"?/', $cfg, $m) && $m[1] !== '') return $m[1];
+    return 'eth0';
+}
+function ug_sysfs_write(string $led, string $attr, string $value): void {
+    $path = ug_path('leds') . '/' . $led . '/' . $attr;
+    if (!is_writable($path)) throw new RuntimeException("sysfs 节点不可写: $path");
+    if (@file_put_contents($path, $value) === false) throw new RuntimeException("写 sysfs 失败: $path = $value");
+}
+function ug_sysfs_init(): void {
+    // 硬盘灯：oneshot 触发器，活动时写 shot 触发单次闪烁（与旧监控一致的稳定路径）。
+    foreach (['disk1', 'disk2', 'disk3', 'disk4'] as $led) {
+        ug_sysfs_write($led, 'trigger', 'oneshot');
+        ug_sysfs_write($led, 'invert', '1');
+        ug_sysfs_write($led, 'delay_on', '100');
+        ug_sysfs_write($led, 'delay_off', '100');
+    }
+    // 网络灯：netdev 内核触发器自动处理 tx/rx 闪烁。
+    ug_sysfs_write('netdev', 'trigger', 'netdev');
+    ug_sysfs_write('netdev', 'device_name', ug_net_iface());
+    ug_sysfs_write('netdev', 'link', '1');
+    ug_sysfs_write('netdev', 'tx', '1');
+    ug_sysfs_write('netdev', 'rx', '1');
+    ug_sysfs_write('netdev', 'interval', '500');
+    // 电源灯：静态 none 触发器，由颜色与亮度控制。
+    ug_sysfs_write('power', 'trigger', 'none');
+}
+function ug_apply_led_state(string $led, array $intent): void {
+    if (($intent['off'] ?? false)) {
+        ug_sysfs_write($led, 'brightness', '0');
+        return;
+    }
+    ug_sysfs_write($led, 'color', $intent['color']);
+    ug_sysfs_write($led, 'brightness', (string)$intent['brightness']);
 }
 function ug_apply(array $desired, string $generation): void {
     ug_lock('cli', static function () use ($desired, $generation): void {
         if (!ug_allowed($generation)) return;
         $cache = ug_json_read('led-cache');
-        $settle = (int)ug_settings()['daemon']['led_settle_ms'];
-        foreach ($desired as $led => $args) {
+        foreach ($desired as $led => $intent) {
             if (!in_array($led, ['disk1', 'disk2', 'disk3', 'disk4', 'power', 'netdev'], true)) throw new InvalidArgumentException('灯位无效');
-            // stop 改变 generation 后不再启动下一次 CLI，即使本批尚有其他 LED。
             if (!ug_allowed($generation)) return;
-            if (($cache[$led] ?? null) === $args) continue;
-            // 灯与灯之间静置，避免连续块写导致 MCU 不确认命令（DX4600 已知时序问题）。
-            if ($settle > 0) usleep($settle * 1000);
-            $result = null;
-            for ($attempt = 0; $attempt < 2; $attempt++) {
-                if ($attempt > 0) usleep(max(2000000, $settle * 1000)); // 失败后给 MCU 更长恢复时间再重试一次
-                ug_preflight();
-                $result = ug_exec(['/usr/bin/timeout', '--signal=TERM', '--kill-after=0.2s', '5s', ug_path('cli'), $led, ...$args, '--force', '--apply'], '', 5.5);
-                if ($result['code'] === 0) break;
+            $blink = $intent['blink'] ?? false;
+            unset($intent['blink']);
+            // 颜色/亮度变化才写 sysfs（缓存去重）；活动闪烁每轮写 shot，不缓存。
+            if (($cache[$led] ?? null) !== $intent) {
+                ug_apply_led_state($led, $intent);
+                $cache[$led] = $intent;
+                ug_json_write('led-cache', $cache);
             }
-            if ($result['code'] !== 0) {
-                ug_json_write('led-cache', []);
-                throw new RuntimeException('LED CLI 失败 ' . $led . ' rc=' . $result['code'] . ' ' . $result['output']);
+            if ($blink && str_starts_with($led, 'disk')) {
+                ug_sysfs_write($led, 'shot', '1');
             }
-            $cache[$led] = $args;
-            ug_json_write('led-cache', $cache);
         }
     });
 }
@@ -178,6 +200,8 @@ function ug_daemon(string $action, string $generation): int {
             }
         }
         ug_preflight();
+        ug_ensure_driver();
+        ug_sysfs_init();
         ug_json_write('led-cache', []);
         ug_state_for($generation, ['state' => 'running', 'error' => null]);
         ug_log('service.start', 'LED 服务开始');

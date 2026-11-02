@@ -98,22 +98,46 @@ function ug_service_status(): array {
 }
 function ug_preflight(): void {
     if (ug_read(ug_path('dmi')) !== 'DX4600') throw new RuntimeException('仅精确 DX4600 允许 LED 写入');
-    $modules = ug_read(ug_path('proc') . '/modules');
-    if ($modules === null) throw new RuntimeException('无法检查内核模块');
-    if (preg_match('/^(led_ugreen|leds_ugreen|ugreen_leds|leds_mcu\S*)\s/m', $modules)) throw new RuntimeException('LED 内核驱动冲突；需由管理员移除原控制器');
+    // 方向二：新守护进程写内核驱动的 sysfs 节点，必须拒绝旧的用户态监控进程并行控制。
     foreach (glob(ug_path('proc') . '/[0-9]*/cmdline') ?: [] as $file) {
         $cmd = @file_get_contents($file);
         if ($cmd === false || $cmd === '') continue;
         $args = explode("\0", rtrim($cmd, "\0"));
         foreach (array_slice($args, 0, 3) as $arg) {
-            if (in_array(basename($arg), ['ugreen-leds', 'ugreen-leds-delayed.sh', 'led_daemon.sh', 'ugreenleds', 'ugreen-leds-monitor', 'ugreen_leds_cli'], true)) {
-                throw new RuntimeException('发现其他 LED 控制进程，拒绝并行接管');
+            if (in_array(basename($arg), ['ugreen-leds', 'ugreen-leds-delayed.sh'], true)) {
+                throw new RuntimeException('发现旧版 LED 监控进程（' . basename($arg) . '），请先停止 /usr/bin/ugreen-leds');
             }
         }
     }
-    $cli = ug_path('cli');
-    if (!is_executable($cli) || hash_file('sha256', $cli) !== '3d09aa29d7f6d1c90811d270cde6bd2218470a49fe989646804884477535e8e7') throw new RuntimeException('随包 LED CLI 缺失、不可执行或 SHA256 不匹配');
-    if (!is_executable('/usr/bin/timeout')) throw new RuntimeException('缺少 /usr/bin/timeout');
+}
+function ug_module_loaded(string $name): bool {
+    return preg_match('/^' . preg_quote($name, '/') . '\s/m', ug_read(ug_path('proc') . '/modules') ?? '') === 1;
+}
+function ug_find_i801_bus(): ?string {
+    foreach (glob(ug_path('i2cdev') . '/i2c-*') ?: [] as $dev) {
+        $name = ug_read($dev . '/device/name');
+        if ($name !== null && str_starts_with($name, 'SMBus I801 adapter')) return basename($dev);
+    }
+    return null;
+}
+function ug_ensure_driver(): void {
+    // 方向二：使用 led-ugreen 内核模块作为稳定的写后端（持 i2c client + mutex，规避用户态反复 open/close 的 MCU ACK 失败）。
+    if (!ug_module_loaded('led_ugreen')) {
+        $r = ug_exec(['/sbin/modprobe', 'led-ugreen'], '', 15);
+        if ($r['code'] !== 0) throw new RuntimeException('加载 led-ugreen 内核驱动失败: ' . trim($r['output']));
+        usleep(600000);
+    }
+    if (!is_dir(ug_path('leds') . '/power')) {
+        $bus = ug_find_i801_bus();
+        if ($bus === null) throw new RuntimeException('未找到 SMBus I801 总线');
+        $newdev = ug_path('bus_i2c') . '/' . $bus . '/new_device';
+        if (!is_writable($newdev)) throw new RuntimeException('new_device 不可写: ' . $newdev);
+        if (@file_put_contents($newdev, 'led-ugreen 0x3a') === false) throw new RuntimeException('注册 LED I2C 从设备失败');
+        for ($i = 0; $i < 25 && !is_dir(ug_path('leds') . '/power'); $i++) usleep(200000);
+        if (!is_dir(ug_path('leds') . '/power')) throw new RuntimeException('LED sysfs 节点未出现');
+    }
+    ug_exec(['/sbin/modprobe', 'ledtrig-oneshot'], '', 5);
+    ug_exec(['/sbin/modprobe', 'ledtrig-netdev'], '', 5);
 }
 function ug_queue_command(string $generation): string {
     if (!preg_match('/^[a-f0-9]{32}$/D', $generation)) throw new InvalidArgumentException('generation 无效');

@@ -96,16 +96,19 @@ try {
     $row = ['led' => 'disk1', 'state' => 'active', 'read_kbps' => 4096, 'write_kbps' => 0];
     $cfg['activity']['network_blink'] = 'true';
     $desired = ug_desired($cfg, [$row], $net);
-    check(in_array('-blink', $desired['disk1'], true) && in_array('-blink', $desired['netdev'], true), '活动闪动通过 CLI 参数');
-    check(array_slice($desired['disk1'], 0, 4) === ['-color', '255', '255', '255'], '用户白色活动灯');
+    check(($desired['disk1']['blink'] ?? false) === true && ($desired['netdev']['blink'] ?? false) === false, '硬盘活动闪动走 blink 标志，网络灯交给 netdev 触发器');
+    check($desired['disk1']['color'] === '255 255 255', '用户白色活动灯');
     $cfg['mode']['global'] = 'off';
-    check(count(ug_desired($cfg, [], $net)) === 6 && ug_desired($cfg, [], $net)['disk4'] === ['-off'], 'off 管理六灯');
+    check(count(ug_desired($cfg, [], $net)) === 6 && ug_desired($cfg, [], $net)['disk4'] === ['off' => true], 'off 管理六灯');
     $cfg['behavior']['manage_power'] = $cfg['behavior']['manage_netdev'] = 'false';
     check(count(ug_desired($cfg, [], $net)) === 4, '尊重接管开关');
     file_put_contents("$root/dmi", 'DX4600 Pro');
     try { ug_preflight(); check(false, '非精确型号被拒绝'); } catch (RuntimeException $e) { check(str_contains($e->getMessage(), '精确'), '非精确型号被拒绝'); }
-    file_put_contents("$root/dmi", 'DX4600'); file_put_contents("$root/proc/modules", "led_ugreen 1 0 - Live 0\n");
-    try { ug_preflight(); check(false, '驱动冲突被拒绝'); } catch (RuntimeException $e) { check(str_contains($e->getMessage(), '驱动冲突'), '驱动冲突被拒绝'); }
+    file_put_contents("$root/dmi", 'DX4600');
+    ug_preflight(); check(true, '精确 DX4600 且无旧监控进程时 preflight 通过');
+    mkdir("$root/proc/777", 0700, true);
+    file_put_contents("$root/proc/777/cmdline", "/bin/bash\0/usr/bin/ugreen-leds\0");
+    try { ug_preflight(); check(false, '旧监控进程被拒绝'); } catch (RuntimeException $e) { check(str_contains($e->getMessage(), '旧版'), '旧监控进程被拒绝'); }
     for ($i = 0; $i < 20; $i++) ug_log('test-' . $i, str_repeat('日志', 10000));
     check(filesize("$root/service.log") <= 256 * 1024, '日志大小有界');
     echo "通过 $count 项 phase2 fixture 检查；未执行硬件或 at。\n";
