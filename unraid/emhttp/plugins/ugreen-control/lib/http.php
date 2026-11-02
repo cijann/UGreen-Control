@@ -21,11 +21,9 @@ function ug_csrf_valid(string $token, string $expected): bool {
 }
 function ug_authorize(bool $write): void {
     if (!ug_authenticated()) throw new UgHttpError('需要有效的 Unraid 登录会话', 401);
-    if ($write) {
-        $expected = ug_ini(ug_path('emhttp') . '/var.ini', false)['csrf_token'] ?? '';
-        $token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        if (!is_string($token) || !ug_csrf_valid($token, $expected)) throw new UgHttpError('CSRF 校验失败，请刷新页面', 403);
-    }
+    // 不再重复校验 CSRF：Unraid 的 auto_prepend_file（local_prepend.php）已对所有非
+    // login/auth 的 POST 强制校验 X-CSRF-Token / csrf_token，并在通过后 unset 该变量；
+    // 在此再次校验只会读到空值并误报 403。
 }
 class UgHttpError extends RuntimeException {}
 function ug_http_params(string $body): array {

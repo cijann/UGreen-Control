@@ -48,11 +48,7 @@ try {
     check(!ug_csrf_valid('', '') && !ug_csrf_valid('wrong', 'valid') && ug_csrf_valid('valid', 'valid'), 'CSRF 使用非空精确匹配');
     rejects(static fn() => ug_authorize(true), '无登录会话不能写入');
     define('UGREEN_HTTP_FIXTURE', ['session' => ['unraid_login' => time()]]);
-    file_put_contents("$root/emhttp/var.ini", "mdState=\"STARTED\"\ncsrf_token=\"fixture-token\"\n");
-    $_SERVER['HTTP_X_CSRF_TOKEN'] = 'wrong';
-    rejects(static fn() => ug_authorize(true), '已登录但 CSRF 错误不能写入');
-    $_SERVER['HTTP_X_CSRF_TOKEN'] = 'fixture-token';
-    ug_authorize(true); check(true, '已登录且 CSRF 正确可进入写入路由');
+    ug_authorize(true); check(true, '已登录即可写入；CSRF 由 Unraid local_prepend 在 POST 前强制校验');
     file_put_contents("$root/emhttp/disks.ini", "[\"disk1\"]\ntype=\"Data\"\ndevice=\"sdb\"\nspundown=\"1\"\n");
     check(read_disks_ini()['disk1']['device'] === 'sdb' && spundown_or_null(read_disks_ini()['disk1']), 'disks.ini 节与引号归一化');
     mkdir("$root/block/ata1/host0/target0:0:0/0:0:0:0", 0700, true);
