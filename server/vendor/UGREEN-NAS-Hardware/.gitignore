@@ -1,0 +1,18 @@
+build/
+/build-*/
+/build-*.exe
+/build-*.pdb
+/dist/
+__pycache__/
+*.py[cod]
+compile_commands.json
+*.o
+*.so
+*.a
+ugreenctl
+
+# Local firmware drop zone and disposable extraction workspace.
+firmware-inbox/input/*
+!firmware-inbox/input/.gitkeep
+firmware-inbox/work/*
+!firmware-inbox/work/.gitkeep

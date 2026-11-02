@@ -1,11 +1,12 @@
 export function platformConfig(target?: string, phase?: string) {
-  const unraid = target === 'unraid';
+  const isFnos = target === 'fnos' || (!target && !phase);
+  const unraid = !isFnos;
   const phase2 = unraid && phase === '2';
   return {
     unraid,
     phase2,
     readOnly: unraid && !phase2,
-    capabilities: { lighting: !unraid || phase2, bios: !unraid, hardwareSettings: !unraid, logWrites: !unraid },
+    capabilities: { lighting: isFnos || phase2, bios: isFnos, hardwareSettings: isFnos, logWrites: isFnos },
     name: unraid ? 'Unraid' : 'fnOS',
     apiBase: unraid ? '/plugins/ugreen-control/api.php' : '/cgi/ThirdParty/App.Native.UGreenLED/api.cgi',
   };

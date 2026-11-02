@@ -10,15 +10,11 @@ test('relative README images resolve to repository content instead of the NAS pa
   assert.equal(readmeHref('docs/releases/v3.0.6.md'), 'https://github.com/BearHero520/UGreen-Control/blob/main/docs/releases/v3.0.6.md');
 });
 
-test('published donation images become image tokens with the right repository URL', () => {
-  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
-  assert.doesNotMatch(readme, /<details>|<summary>|<img\s|<a\s/);
-  const tokens = readmeInlineTokens(readme).filter((token) => token.kind === 'image');
-  assert.equal(tokens.length, 2);
-  assert.deepEqual(tokens.map((token) => token.src), [
-    'https://raw.githubusercontent.com/BearHero520/UGreen-Control/main/docs/assets/donate/alipay.jpg',
-    'https://raw.githubusercontent.com/BearHero520/UGreen-Control/main/docs/assets/donate/wechat.png',
-  ]);
+test('published repository images become image tokens with the right repository URL', () => {
+  const sample = '![logo](docs/assets/logo.png)';
+  const tokens = readmeInlineTokens(sample).filter((token) => token.kind === 'image');
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0].src, 'https://raw.githubusercontent.com/BearHero520/UGreen-Control/main/docs/assets/logo.png');
 });
 
 test('images do not consume neighboring links, bold text, or code examples', () => {

@@ -26,7 +26,7 @@ ROOT   = Path(__file__).resolve().parent.parent
 DIST   = ROOT / 'dist'
 UNRAID = ROOT / 'unraid'
 WEB_UI = ROOT / 'web-ui'
-DIST_UNRAID = WEB_UI / 'dist-unraid'
+DIST_UNRAID = WEB_UI / 'dist'
 
 PLG_TEMPLATE = """\
 <?xml version='1.0' standalone='yes'?>
@@ -109,13 +109,13 @@ def build_txz(version: str, tmp: Path) -> Path:
     # Plugin page, PHP API, version.
     target = pkg / 'usr/local/emhttp/plugins/ugreen-control'
     shutil.copytree(UNRAID / 'emhttp/plugins/ugreen-control', target, dirs_exist_ok=True)
-    cli = ROOT / 'App.Native.UGreenLED/app/server/bin/ugreen_leds_cli'
+    cli = ROOT / 'server/bin/ugreen_leds_cli'
     expected = '3d09aa29d7f6d1c90811d270cde6bd2218470a49fe989646804884477535e8e7'
     if hashlib.sha256(cli.read_bytes()).hexdigest() != expected:
         raise RuntimeError('LED CLI SHA256 mismatch')
     (target / 'server/bin').mkdir(parents=True, exist_ok=True)
     shutil.copy2(cli, target / 'server/bin/ugreen_leds_cli')
-    shutil.copy2(ROOT / 'App.Native.UGreenLED/app/server/vendor/UGREEN-NAS-Hardware/led/LICENSE.upstream-led', target / 'server/bin/LICENSE.upstream-led')
+    shutil.copy2(ROOT / 'server/vendor/UGREEN-NAS-Hardware/led/LICENSE.upstream-led', target / 'server/bin/LICENSE.upstream-led')
 
     (pkg / 'usr/local/emhttp/plugins/ugreen-control/version.txt').write_text(version + '\n')
     shutil.copy2(ROOT / 'LICENSE', pkg / 'usr/local/emhttp/plugins/ugreen-control/LICENSE')
