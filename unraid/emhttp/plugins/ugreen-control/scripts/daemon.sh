@@ -4,7 +4,7 @@ set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 BASE=$(builtin cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 case "${1:-status}" in
-  start|schedule|stop|status|disable|enable)
+  start|schedule|stop|status|check|disable|enable)
     exec /usr/bin/php "$BASE/control.php" "${1:-status}"
     ;;
   run|wait)

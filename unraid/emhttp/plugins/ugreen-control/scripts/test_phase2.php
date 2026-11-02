@@ -47,6 +47,7 @@ try {
     check(!ug_session_valid([]) && !ug_session_valid(['unraid_login' => true]) && ug_session_valid(['unraid_login' => time()]), '独立会话校验');
     check(!ug_csrf_valid('', '') && !ug_csrf_valid('wrong', 'valid') && ug_csrf_valid('valid', 'valid'), 'CSRF 使用非空精确匹配');
     rejects(static fn() => ug_authorize(true), '无登录会话不能写入');
+    file_put_contents("$root/emhttp/var.ini", "mdState=\"STARTED\"\n");
     define('UGREEN_HTTP_FIXTURE', ['session' => ['unraid_login' => time()]]);
     ug_authorize(true); check(true, '已登录即可写入；CSRF 由 Unraid local_prepend 在 POST 前强制校验');
     file_put_contents("$root/emhttp/disks.ini", "[\"disk1\"]\ntype=\"Data\"\ndevice=\"sdb\"\nspundown=\"1\"\n");
@@ -81,6 +82,17 @@ try {
     $result = ug_stop();
     check($result['ok'] && ug_generation() !== $job['generation'] && $result['service']['state'] === 'stopped', '空闲 stop 取消未启动任务');
     check(ug_wait_decision($job, ug_generation(), false, true, 1000) === 'cancel', '旧 at 即使随后开始仍无效');
+    ug_disable();
+    check(is_file("$root/boot/DISABLED") && ug_disabled(), '持久禁用标记写入启动盘');
+    unlink("$root/run/DISABLED");
+    ug_settings_save(['daemon' => ['enabled' => 'true']]);
+    check(ug_disabled(), '即使丢失运行目录且配置启用，启动盘标记仍阻止启动');
+    ug_enable();
+    check(!ug_disabled() && !is_file("$root/boot/DISABLED"), 'enable 清除持久禁用但不排队');
+    check(ug_settings()['autostart']['enabled'] === 'false', 'enable 不擅自开启自动启动');
+    $ran = false;
+    try { ug_guarded($job['generation'], static function () use (&$ran): void { $ran = true; }); } catch (UgCancelled $e) {}
+    check(!$ran, '旧 generation 无法进入驱动写入锁');
     check(ug_starttime('7 (name with ) parens) S ' . implode(' ', array_fill(0, 18, '0')) . ' 123 0') === '123', '进程名括号不破坏 starttime 解析');
     mkdir("$root/proc/123");
     file_put_contents("$root/proc/123/stat", '123 (php) S ' . implode(' ', array_fill(0, 18, '0')) . ' 999 0');

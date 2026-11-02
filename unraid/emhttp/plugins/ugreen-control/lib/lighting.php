@@ -221,8 +221,9 @@ function ug_daemon(string $action, string $generation): int {
             }
         }
         ug_preflight();
-        ug_ensure_driver();
-        ug_sysfs_init();
+        ug_state_for($generation, ['state' => 'starting']);
+        ug_ensure_driver($generation);
+        ug_guarded($generation, static function (): void { ug_sysfs_init(); });
         ug_json_write('led-cache', []);
         ug_state_for($generation, ['state' => 'running', 'error' => null]);
         ug_log('service.start', 'LED 服务开始');
@@ -267,6 +268,8 @@ function ug_daemon(string $action, string $generation): int {
             $until = hrtime(true) / 1e9 + (int)$cfg['daemon']['refresh_interval'];
             while (hrtime(true) / 1e9 < $until && ug_allowed($generation)) usleep(100000);
         }
+        return 0;
+    } catch (UgCancelled $e) {
         return 0;
     } catch (Throwable $e) {
         ug_state_for($generation, ['state' => 'error', 'error' => $e->getMessage()]);

@@ -1,111 +1,117 @@
 # UGreen Control for Unraid
 
-专为运行在绿联 NAS（DX4600 / DX4600+ / DX4600 Pro 等系列机型）上的 **Unraid OS** 打造的硬件监控与前面板控制插件。
+绿联 NAS 的 Unraid 硬件监控与前面板 LED 控制插件，提供遥测看板、盘位映射和灯效设置。
 
-将硬件遥测看板、物理盘位状态监测与前面板 LED 控制集中到 Unraid 原生 WebGUI 界面，解决刷机后前面板灯光失效、缺乏读写活动指示的问题。
+## 验证范围与当前状态
 
----
+- 仅实测 **DX4600 / Unraid 7.3.1 / 内核 `6.18.33-Unraid` / x86_64**。DX4600+、DX4600 Pro 及其他系统组合未经验证。
+- 随包驱动仅面向 `6.18.33-Unraid`；其他内核跳过驱动安装及加载，不启动 LED 硬件服务。
+- `3.0.7-unraid-p2.5` 已验证延迟等待取消、持久禁用、重复启动防重和应用回退。缺模块恢复分支通过隔离测试；尚未重启或卸载现用驱动验证完整冷启动流程。
+- 尚未发布 Release。`dist/` 被 Git 忽略，未上传仓库，目前没有可用的在线 `.plg` 安装链接。
 
-## 主要特性
+## 功能
 
-- **🚀 原生 Unraid WebGUI 深度集成**
-  - 位于 Unraid **设置 (Settings) → 实用工具 (Utilities)**，支持直接嵌入与独立全屏访问。
-  - 遵循 Unraid 原生会话认证机制与 CSRF 安全防护，无须另开 Web 服务端口。
+- 集成 Unraid WebGUI，提供硬件遥测、物理盘位映射与手动校准。
+- 提供电源、网络、四盘位 LED 的灯效设置及活动指示；实际效果取决于硬件和驱动状态。
+- 显示可用的温度、风扇转速与 PWM 数据；阵列盘温度和休眠状态复用 Unraid 缓存。
+- 支持阵列挂载后延迟启动、取消排队任务及持久禁用。
 
-- **💡 前面板灯光与活动指示**
-  - 支持电源灯、网络灯、四盘位硬盘灯的开关、颜色、亮度及动态灯效配置。
-  - 实时根据硬盘读写吞吐、网络流量变化触发智能闪烁（活动提示）。
-  - 区分硬盘活动（Active）、空闲（Idle）、休眠（Standby）与离线（Offline）灯效。
+CLI 此前的 ACK 不可靠，目前只能观测失败现象，失败原因尚未定位，不能断言 `open` / `close` 是根因。延迟启动用于减少引导早期的硬件访问，不能保证消除启动卡死或内核调用阻塞。
 
-- **🌡️ 硬件遥测与健康看板**
-  - 实时读取 CPU 温度（coretemp）、主板芯片（IT8613/IT8620）及系统风扇实时转速（RPM）与当前 PWM。
-  - **低唤醒设计**：阵列硬盘温度与休眠状态直接复用 Unraid 内存缓存，避免频繁查询轮询导致休眠中的数据盘被误唤醒。
+## 离线构建与安装
 
-- **🛡️ 开机时序安全守护（规避引导故障）**
-  - 内置开机延迟加载机制：等待 Unraid 阵列就绪（`disks_mounted`）且系统完全稳定后，再在后台延时加载硬件服务。
-  - 彻底规避在系统引导早期访问 I²C/MCU 硬件或加载内核模块引发的启动卡死、无法进入系统风险（如开源社区记录的 issue #87）。
+本地需要 Node.js 20+、npm 与 Python 3.10+。在仓库根目录执行：
 
-- **📊 物理盘位映射识别**
-  - 自动识别 PCI 与原生 SATA 端口拓扑，区分 Unraid 逻辑阵列盘符与物理盘仓位置。
-  - 支持手动序列号校准，避免硬盘盘符漂移导致灯位与实体盘位不对应。
+```bash
+npm ci --prefix web-ui
+python3 scripts/build_unraid.py --version 3.0.7-unraid-p2.5
+```
 
----
+`build_unraid.py` 负责设置 `VITE_PLATFORM=unraid`、`VITE_UNRAID_PHASE=2` 并执行 Vite 构建，再生成 `dist/` 中的 `.plg`、应用 `.txz` 和校验文件。不要用普通前端构建产物替代 Unraid 构建。
 
-## 系统要求
+完成本次实现并检查构建产物后，离线安装步骤如下（仅供手动执行）：
 
-- **操作系统**：Unraid OS 7.0.0 及以上（推荐 7.2+ / 7.3+，已在 Unraid 7.3.1 实机验证）
-- **机型**：绿联 DX4600 / DX4600+ / DX4600 Pro（其他机型支持正在适配中）
-- **架构**：x86_64
+1. 将同一次构建的 `ugreen-control.plg`、`ugreen-control-unraid-3.0.7-unraid-p2.5.txz` 及其校验文件复制到 `/boot/config/plugins/ugreen-control/`。
+2. 在 Unraid 终端安装：
 
----
-
-## 安装方法
-
-### 方式一：通过 Unraid WebGUI 插件管理器安装
-
-1. 打开 Unraid 管理网页，进入 **插件 (Plugins)** 标签页；
-2. 切换到 **安装插件 (Install Plugin)** 子页面；
-3. 在输入框中粘贴本插件的 `.plg` 链接：
-   ```text
-   https://raw.githubusercontent.com/cijann/UGreen-Control/main/dist/ugreen-control.plg
-   ```
-4. 点击 **安装 (Install)**，等待安装完成；
-5. 安装成功后，可在 **设置 (Settings) → 实用工具 (Utilities) → UGreen Control** 打开控制面板。
-
-### 方式二：手动离线安装
-
-1. 从本仓库的 `dist/` 目录下载 `ugreen-control.plg` 和 `ugreen-control-unraid-*.txz`；
-2. 将文件上传至 Unraid 引导盘：
-   ```bash
-   /boot/config/plugins/ugreen-control/
-   ```
-3. 在 Unraid 终端中执行安装命令：
    ```bash
    plugin install /boot/config/plugins/ugreen-control/ugreen-control.plg
    ```
 
----
+3. 在 **设置 (Settings) → 实用工具 (Utilities) → UGreen Control** 打开面板，先检查状态，再按需启动或排队。
 
-## 架构与目录设计
+安装阶段仅铺设文件，不执行 `modprobe`，不直接启动 LED 硬件服务。持久禁用标记存在时，重装或重启也不会解除禁用。
 
-```text
-├── unraid/                     # Unraid 原生插件集成目录
-│   └── emhttp/plugins/ugreen-control/
-│       ├── UGreen.Control.page # Unraid WebGUI 菜单入口定义
-│       ├── page.php            # 原生 iframe 页面渲染器
-│       ├── api.php             # 内部受保护的 REST API（会话鉴权 + CSRF 验证）
-│       ├── lib/                # 后端核心业务逻辑（设置管理、硬件控制、服务调度）
-│       ├── scripts/            # 守护进程与生命周期控制脚本 (control.php / daemon.php)
-│       └── event/              # Unraid 阵列事件钩子 (disks_mounted / stopping_svcs)
-├── web-ui/                     # 基于 React + TypeScript + Vite 打造的管理面板源码
-│   ├── src/                    # 状态监控、设备映射、灯效设置组件
-│   └── dist/                   # 独立构建的前端静态资源
-├── server/bin/                 # 预编译硬件底座程序 (ugreen_leds_cli / ugreenctl)
-├── scripts/
-│   └── build_unraid.py         # 专用的 Unraid .txz 包与 .plg 自动化构建打包工具
-└── dist/                       # 最终打包生成的 Unraid 插件安装产物
-```
+## 冷启动与延迟恢复流程
 
----
+实现的启动流程如下；完整冷启动仍待实测：
 
-## 本地开发与打包
+1. 冷启动时，插件安装阶段仅铺文件；`event/disks_mounted` 在阵列挂载后，通过 `at` 排队延迟任务。默认等待 **300 秒**，允许范围 **60–3600 秒**；事件触发排队仍受 autostart 设置和禁用状态约束。
+2. 到期后核验任务 generation 与禁用状态，再检查随插件 `drivers/` 打包的驱动包：
 
-需要 Node.js 20+ 与 Python 3.10+：
+   ```text
+   ugreen_leds-20260305-6.18.33-Unraid-1.txz
+   SHA256: aa8ddd21ababb03bc2e792162150a225c69b9c4d290931b2584f9578835b9a2d
+   ```
+
+3. 校验驱动包 SHA256，并通过 `modinfo` 检查模块。缺模块时才执行 `installpkg` 和 `depmod`，随后重新检查模块；只有 `vermagic` 与当前内核精确匹配才允许加载。
+4. 校验失败或内核不匹配时停止后续硬件启动。其他内核跳过随包驱动安装及加载；延长等待时间不会解决驱动不匹配。
+5. `stop` / `disable` 使任务 generation 失效，阻止已排队或正在执行的旧任务继续后续步骤。已开始的内核调用不能强杀，也不能保证取消立刻生效；调用返回后停止后续步骤。
+
+`stop` 保留当前灯态和已加载的驱动，不强制卸载模块。停止服务不等于关闭灯光或撤销已经完成的硬件操作。
+
+## 检查、禁用与重新启动
+
+以下命令在插件安装后于 Unraid 终端手动执行：
 
 ```bash
-# 1. 安装前端依赖并构建
-cd web-ui
-npm install
-npm run build
-cd ..
-
-# 2. 生成 Unraid 插件包与 .plg 文件
-python3 scripts/build_unraid.py --version 3.0.7-unraid-p2.0
+cd /usr/local/emhttp/plugins/ugreen-control
+php scripts/control.php check
 ```
 
-打包产物将自动输出到 `dist/` 目录。
+| 命令 | 行为 |
+| --- | --- |
+| `php scripts/control.php check` | 只读核验并报告状态，不安装、不加载、不启动。 |
+| `php scripts/control.php stop` | 停止服务并使旧任务 generation 失效；保留灯态与已加载驱动。 |
+| `php scripts/control.php disable` | 停止服务、取消旧任务，并持久禁用。 |
+| `php scripts/control.php enable` | 解除持久禁用，不启动服务，保留现有 autostart 设置。 |
+| `php scripts/control.php start` | 立即尝试启动，仍须通过禁用状态与驱动校验。 |
+| `php scripts/control.php schedule` | 按配置延时排队，仍受禁用状态约束。 |
 
----
+持久禁用标记为 `/boot/config/plugins/ugreen-control/DISABLED`，`enable` 移除此标记。需要恢复时先运行 `check` 查看报告，再 `enable`，最后选择 `start` 或 `schedule`；解除禁用本身不会启动服务。
+
+旧版本的 `enable` 会同时开启 autostart；本次改为保留 autostart 原设置，是否随阵列挂载自动排队需单独确认。
+
+## 应用回退
+
+升级前由 `scripts/backup.php` 保存已安装的定义与应用包，并记录 SHA256（本次已建立 `backup-3.0.7-unraid-p2.3`）。先以实际备份版本替换 `<version>`，执行只读检查：
+
+```bash
+cd /usr/local/emhttp/plugins/ugreen-control
+scripts/rollback.sh --check /boot/config/plugins/ugreen-control/backup-<version>/ugreen-control.plg
+```
+
+工具先校验备份 `.txz` 的 SHA256 sidecar、包内全部路径及待安装包的唯一性；检查失败时不继续安装。检查通过后，手动应用回退：
+
+```bash
+scripts/rollback.sh /boot/config/plugins/ugreen-control/backup-<version>/ugreen-control.plg
+```
+
+应用回退先执行 `disable`，再用 `plugin install` 安装备份的旧 `.plg`。仅回退应用，保留设置，不更换风扇控制组件，也不强制卸载已加载驱动；回退后保持禁用，检查状态后再决定是否解除禁用并启动。若内核调用仍在阻塞，回退也不能保证立即终止该调用。
+
+## 目录
+
+```text
+unraid/emhttp/plugins/ugreen-control/
+├── drivers/       # 本次随包驱动
+├── lib/           # 后端与驱动核验
+├── scripts/       # control.php、daemon.php、rollback.sh
+└── event/         # disks_mounted、stopping_svcs
+web-ui/            # React / TypeScript / Vite 前端
+server/bin/        # 硬件控制程序
+scripts/build_unraid.py
+dist/              # 本地安装产物，Git 忽略
+```
 
 ## 开源许可与致谢
 
@@ -114,4 +120,4 @@ python3 scripts/build_unraid.py --version 3.0.7-unraid-p2.0
   - [miskcoo/ugreen_dx4600_leds_controller](https://github.com/miskcoo/ugreen_dx4600_leds_controller)
   - [BearHero520/UGreen-Control](https://github.com/BearHero520/UGreen-Control) 与 [UGREEN-NAS-Hardware](https://github.com/BearHero520/UGREEN-NAS-Hardware)
   - [ich777/unraid-ugreenleds-driver](https://github.com/ich777/unraid-ugreenleds-driver)
-- 感谢所有为绿联 NAS 第三方固件生态做出贡献的开发者！
+- 感谢所有为绿联 NAS 第三方固件生态做出贡献的开发者。

@@ -34,7 +34,7 @@ PLG_TEMPLATE = """\
   <!ENTITY name        "ugreen-control">
   <!ENTITY version     "{version}">
   <!ENTITY md5         "{md5}">
-  <!ENTITY url         "https://github.com/BearHero520/UGreen-Control">
+  <!ENTITY url         "https://github.com/cijann/UGreen-Control">
   <!ENTITY txz         "ugreen-control-unraid-{version}.txz">
   <!ENTITY plugin      "/boot/config/plugins/&name;">
   <!ENTITY emhttp      "/usr/local/emhttp/plugins/&name;">
@@ -44,11 +44,14 @@ PLG_TEMPLATE = """\
 
 <CHANGES>
 ### {version}
-- Phase 1: read-only hardware overview, disk mapping, system telemetry.
+- Phase 2: pinned offline driver recovery after array delay, persistent disable, cancellation checkpoints and verified application rollback.
 </CHANGES>
 
 <FILE Run="/bin/bash">
 <INLINE>
+if [ -f &emhttp;/scripts/backup.php ]; then
+  /usr/bin/php &emhttp;/scripts/backup.php || exit 1
+fi
 if [ -f &emhttp;/scripts/control.php ]; then
   /usr/bin/php &emhttp;/scripts/control.php stop || exit 1
 fi
@@ -109,6 +112,12 @@ def build_txz(version: str, tmp: Path) -> Path:
     # Plugin page, PHP API, version.
     target = pkg / 'usr/local/emhttp/plugins/ugreen-control'
     shutil.copytree(UNRAID / 'emhttp/plugins/ugreen-control', target, dirs_exist_ok=True)
+    driver = target / 'drivers/ugreen_leds-20260305-6.18.33-Unraid-1.txz'
+    if hashlib.sha256(driver.read_bytes()).hexdigest() != 'aa8ddd21ababb03bc2e792162150a225c69b9c4d290931b2584f9578835b9a2d':
+        raise RuntimeError('Pinned kernel driver SHA256 mismatch')
+    with tarfile.open(driver, 'r:xz') as archive:
+        if any(m.name.endswith('doinst.sh') or '..' in Path(m.name).parts or m.name.startswith('/') for m in archive.getmembers()):
+            raise RuntimeError('Unexpected kernel driver installation hooks or paths')
     cli = ROOT / 'server/bin/ugreen_leds_cli'
     expected = '3d09aa29d7f6d1c90811d270cde6bd2218470a49fe989646804884477535e8e7'
     if hashlib.sha256(cli.read_bytes()).hexdigest() != expected:
@@ -153,7 +162,7 @@ def main() -> None:
     args = parser.parse_args()
     version = args.version
 
-    print(f'Building UGreen Control Unraid Phase-1 package v{version}...')
+    print(f'Building UGreen Control Unraid package v{version}...')
 
     if not args.skip_ui:
         if not (WEB_UI / 'node_modules').exists():

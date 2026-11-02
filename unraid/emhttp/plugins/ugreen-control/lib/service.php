@@ -1,6 +1,18 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/driver.php';
+
+function ug_disabled(): bool {
+    return is_file(ug_path('runtime') . '/DISABLED') || is_file(ug_path('boot') . '/DISABLED')
+        || ug_settings()['daemon']['enabled'] !== 'true';
+}
+function ug_guarded(string $generation, callable $action) {
+    return ug_lock('cli', static function () use ($generation, $action) {
+        if (!ug_allowed($generation)) throw new UgCancelled('任务已取消');
+        return $action();
+    });
+}
 
 function ug_log(string $key, string $message): void {
     ug_lock('log', static function () use ($key, $message): void {
@@ -72,7 +84,7 @@ function ug_generation(): string { return ug_read(ug_path('runtime') . '/generat
 function ug_array_started(): bool { return (ug_ini(ug_path('emhttp') . '/var.ini', false)['mdState'] ?? '') === 'STARTED'; }
 function ug_allowed(string $generation): bool {
     return $generation !== '' && hash_equals(ug_generation(), $generation)
-        && !is_file(ug_path('runtime') . '/DISABLED') && ug_array_started();
+        && !ug_disabled() && ug_array_started();
 }
 function ug_wait_decision(array $job, string $generation, bool $disabled, bool $arrayStarted, float $now): string {
     if ($disabled || !$arrayStarted || ($job['generation'] ?? '') !== $generation) return 'cancel';
@@ -83,7 +95,7 @@ function ug_service_status(): array {
     $alive = ug_identity_alive(ug_json_read('pid'));
     $valid = ($state['generation'] ?? '') === ug_generation();
     $status = $valid ? ($state['state'] ?? 'stopped') : 'stopped';
-    if (in_array($status, ['running', 'waiting'], true) && !$alive) $status = 'stopped';
+    if (in_array($status, ['running', 'waiting', 'starting'], true) && !$alive) $status = 'stopped';
     // atd 未运行/锁等待失败不能永久伪装成排队成功。
     if ($status === 'queued' && time() - ($state['queued_at'] ?? time()) > 120) {
         $status = 'error'; $state['error'] = 'at 任务超过 120 秒未启动，请检查 atd 和执行锁';
@@ -93,7 +105,7 @@ function ug_service_status(): array {
         'error' => $status === 'error' ? ($state['error'] ?? '服务错误') : null,
         'due_at' => in_array($status, ['queued', 'waiting'], true) ? ($state['due_at'] ?? null) : null,
         'at_job' => in_array($status, ['queued', 'waiting'], true) ? ($state['at_job'] ?? null) : null,
-        'disabled' => is_file(ug_path('runtime') . '/DISABLED') || ug_settings()['daemon']['enabled'] !== 'true',
+        'disabled' => ug_disabled(),
         'stop_behavior' => '停止后保留最后一次 LED 状态；关闭全部请选择 off 模式'];
 }
 function ug_preflight(): void {
@@ -120,24 +132,34 @@ function ug_find_i801_bus(): ?string {
     }
     return null;
 }
-function ug_ensure_driver(): void {
-    // 方向二：使用 led-ugreen 内核模块作为稳定的写后端（持 i2c client + mutex，规避用户态反复 open/close 的 MCU ACK 失败）。
-    if (!ug_module_loaded('led_ugreen')) {
-        $r = ug_exec(['/sbin/modprobe', 'led-ugreen'], '', 15);
-        if ($r['code'] !== 0) throw new RuntimeException('加载 led-ugreen 内核驱动失败: ' . trim($r['output']));
-        usleep(600000);
+function ug_ensure_driver(string $generation): void {
+    ug_driver_restore($generation);
+    foreach (['i2c-dev', 'led-ugreen', 'ledtrig-oneshot', 'ledtrig-netdev'] as $module) {
+        ug_guarded($generation, static function () use ($module): void {
+            ug_preflight();
+            $r = ug_exec(['/usr/bin/timeout', '--kill-after=2s', '15s', '/sbin/modprobe', $module], '', 18);
+            if ($r['code'] !== 0) throw new RuntimeException('加载模块失败: ' . $module);
+        });
     }
-    if (!is_dir(ug_path('leds') . '/power')) {
-        $bus = ug_find_i801_bus();
-        if ($bus === null) throw new RuntimeException('未找到 SMBus I801 总线');
-        $newdev = ug_path('bus_i2c') . '/' . $bus . '/new_device';
-        if (!is_writable($newdev)) throw new RuntimeException('new_device 不可写: ' . $newdev);
-        if (@file_put_contents($newdev, 'led-ugreen 0x3a') === false) throw new RuntimeException('注册 LED I2C 从设备失败');
-        for ($i = 0; $i < 25 && !is_dir(ug_path('leds') . '/power'); $i++) usleep(200000);
-        if (!is_dir(ug_path('leds') . '/power')) throw new RuntimeException('LED sysfs 节点未出现');
-    }
-    ug_exec(['/sbin/modprobe', 'ledtrig-oneshot'], '', 5);
-    ug_exec(['/sbin/modprobe', 'ledtrig-netdev'], '', 5);
+    ug_guarded($generation, static function () use ($generation): void {
+        ug_preflight();
+        if (!is_dir(ug_path('leds') . '/power')) {
+            $bus = ug_find_i801_bus();
+            if ($bus === null) throw new RuntimeException('未找到 SMBus I801 总线');
+            $newdev = ug_path('bus_i2c') . '/' . $bus . '/new_device';
+            if (!is_writable($newdev)) throw new RuntimeException('new_device 不可写');
+            if (@file_put_contents($newdev, "led-ugreen 0x3a\n") === false) throw new RuntimeException('注册 LED I2C 从设备失败');
+        }
+        for ($i = 0; $i < 25 && !is_dir(ug_path('leds') . '/power'); $i++) {
+            if (!ug_allowed($generation)) throw new UgCancelled('设备初始化已取消');
+            usleep(200000);
+        }
+        foreach (['power', 'netdev', 'disk1', 'disk2', 'disk3', 'disk4'] as $led) {
+            if (!is_writable(ug_path('leds') . '/' . $led . '/color')) throw new RuntimeException('LED 节点不完整: ' . $led);
+            $driver = realpath(ug_path('leds') . '/' . $led . '/device/driver/module');
+            if ($driver !== '/sys/module/led_ugreen') throw new RuntimeException('LED 节点不属于预期驱动: ' . $led);
+        }
+    });
 }
 function ug_queue_command(string $generation): string {
     if (!preg_match('/^[a-f0-9]{32}$/D', $generation)) throw new InvalidArgumentException('generation 无效');
@@ -147,7 +169,10 @@ function ug_queue(bool $delayed): array {
     ug_init();
     return ug_lock('control', static function () use ($delayed): array {
         $cfg = ug_settings();
-        if (is_file(ug_path('runtime') . '/DISABLED') || $cfg['daemon']['enabled'] !== 'true') throw new RuntimeException('服务已禁用，请先 enable');
+        if (ug_disabled()) {
+            if ($delayed) return ['ok' => true, 'scheduled' => false, 'reason' => '服务已禁用'];
+            throw new RuntimeException('服务已禁用，请先 enable');
+        }
         if (!ug_array_started()) throw new RuntimeException('阵列必须为 STARTED');
         if ($delayed && $cfg['autostart']['enabled'] !== 'true') return ['ok' => true, 'scheduled' => false, 'reason' => '自动启动已关闭'];
         $old = ug_service_status();
@@ -183,7 +208,10 @@ function ug_queue(bool $delayed): array {
 }
 function ug_stop(bool $disable = false): array {
     $generation = ug_lock('control', static function () use ($disable): string {
-        if ($disable) ug_atomic(ug_path('runtime') . '/DISABLED', '1');
+        if ($disable) {
+            ug_atomic(ug_path('runtime') . '/DISABLED', '1');
+            ug_atomic(ug_path('boot') . '/DISABLED', "1\n");
+        }
         $generation = bin2hex(random_bytes(16));
         ug_atomic(ug_path('runtime') . '/generation', $generation);
         ug_json_write('service', ['generation' => $generation, 'state' => 'stopping']);
@@ -216,6 +244,7 @@ function ug_control(string $action): array {
         'start' => ug_queue(false), 'schedule' => ug_queue(true),
         'stop' => ug_stop(), 'disable' => ug_disable(), 'enable' => ug_enable(),
         'status' => ['ok' => true, 'service' => ug_service_status()],
+        'check' => ['ok' => true, 'driver' => ug_driver_report(), 'disabled' => ug_disabled(), 'array_started' => ug_array_started()],
         default => throw new InvalidArgumentException('用法: control.php start|schedule|stop|status|disable|enable'),
     };
 }
@@ -225,9 +254,10 @@ function ug_disable(): array {
 }
 function ug_enable(): array {
     return ug_lock('control', static function (): array {
-        ug_settings_save(['daemon' => ['enabled' => 'true'], 'autostart' => ['enabled' => 'true']]);
-        $file = ug_path('runtime') . '/DISABLED';
-        if (is_file($file) && !unlink($file)) throw new RuntimeException('无法清除禁用标记');
+        ug_settings_save(['daemon' => ['enabled' => 'true']]);
+        foreach ([ug_path('runtime') . '/DISABLED', ug_path('boot') . '/DISABLED'] as $file) {
+            if (is_file($file) && !unlink($file)) throw new RuntimeException('无法清除禁用标记');
+        }
         return ['ok' => true, 'service' => ug_service_status()];
     });
 }

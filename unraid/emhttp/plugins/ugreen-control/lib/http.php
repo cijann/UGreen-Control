@@ -48,8 +48,9 @@ function ug_http_write(string $path, string $body): array {
         if (($patch['daemon']['enabled'] ?? null) === 'false' || ($patch['daemon']['enabled'] ?? null) === false) ug_stop(true);
         if (($patch['daemon']['enabled'] ?? null) === 'true' || ($patch['daemon']['enabled'] ?? null) === true) {
             ug_lock('control', static function (): void {
-                $file = ug_path('runtime') . '/DISABLED';
-                if (is_file($file) && !unlink($file)) throw new RuntimeException('无法清除禁用标记');
+                foreach ([ug_path('runtime') . '/DISABLED', ug_path('boot') . '/DISABLED'] as $file) {
+                    if (is_file($file) && !unlink($file)) throw new RuntimeException('无法清除禁用标记');
+                }
             });
         }
         if (isset($patch['autostart']) && in_array(ug_service_status()['state'], ['queued', 'waiting'], true)) ug_stop();

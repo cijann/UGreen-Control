@@ -9,6 +9,7 @@
 !/scripts/build_fpk_remote.py
 !/scripts/preview_web.py
 !/scripts/build_unraid.py
+!/scripts/test_driver.php
 /dist/
 *_diag.txt
 *_result.txt
