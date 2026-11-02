@@ -2,6 +2,7 @@ import { BrightnessSlider } from "./BrightnessSlider";
 import { ColorPicker } from "./ColorPicker";
 import { useState, type CSSProperties } from 'react';
 import { boundedInt, hexToRgb, mergeIni, rgbToHex, type IniData } from '../lib/ini';
+import { platform } from '../lib/platform';
 
 type ColorSetting = { key: string; label: string; def: string; brightness: number; off?: boolean };
 
@@ -75,7 +76,7 @@ function StandardLighting({ settings, onChange, onSave, onToast }: {
   const [saving, setSaving] = useState(false);
   const save = async () => {
     setSaving(true);
-    try { await onSave(); } catch { /* The caller has already rendered the actionable error. */ } finally { setSaving(false); }
+    try { await onSave(); } catch { /* 调用方负责显示保存失败原因。 */ } finally { setSaving(false); }
   };
   const setPowerColor = (key: 'smart_color' | 'all_on_color', value: string) => {
     const [red, green, blue] = hexToRgb(value);
@@ -84,6 +85,7 @@ function StandardLighting({ settings, onChange, onSave, onToast }: {
   const powerBrightness = boundedInt(settings.power?.brightness, 0, 255, 40);
 
   return <>
+    {platform.phase2 && <article className="glass-surface led-behavior-surface"><h2>灯光接管范围</h2><div className="service-actions">{([['manage_power', '管理电源灯'], ['manage_netdev', '管理网络灯']] as const).map(([key, label]) => <label className="native-check" key={key}><input type="checkbox" checked={settings.behavior?.[key] !== 'false'} onChange={(event) => onChange(mergeIni(settings, { behavior: { [key]: String(event.target.checked) } }))} /><span>{label}</span></label>)}</div><p className="surface-help">保存配置不会启动或重启服务；运行中由下一轮采样应用。网络灯根据物理链路状态显示，未探测公网可达性。</p></article>}
     <div className="settings-tabs glass-surface animated-lighting-tabs" role="tablist" aria-label="灯光设置分类"
       style={{ '--tab-index': ['disk', 'network', 'power'].indexOf(panel) } as CSSProperties}>
       <span className="lighting-tab-indicator" aria-hidden="true" />
@@ -105,8 +107,8 @@ function StandardLighting({ settings, onChange, onSave, onToast }: {
       </article>
       <article className="glass-surface settings-surface" role="tabpanel" id="lighting-panel-network" aria-labelledby="lighting-tab-network" hidden={panel !== 'network'}>
         <div className="section-heading"><div><span className="section-kicker">NETWORK LED</span><h2>网络状态颜色</h2></div></div>
-        <p className="surface-help">外网、联网和断网状态分别使用独立颜色。</p>
-        <ColorGrid items={networkStates} colorSection="netdev_colors" brightnessSection="netdev_brightness" settings={settings} onChange={onChange} />
+        <p className="surface-help">{platform.phase2 ? 'Unraid 根据 eth0 物理链路区分联网与断网；外网状态未启用。' : '外网、联网和断网状态分别使用独立颜色。'}</p>
+        <ColorGrid items={platform.phase2 ? networkStates.filter((state) => state.key !== 'vpn') : networkStates} colorSection="netdev_colors" brightnessSection="netdev_brightness" settings={settings} onChange={onChange} />
       </article>
       <article className="glass-surface settings-surface" role="tabpanel" id="lighting-panel-power" aria-labelledby="lighting-tab-power" hidden={panel !== 'power'}>
         <div className="section-heading"><div><span className="section-kicker">POWER LED</span><h2>电源灯</h2></div></div>

@@ -8,6 +8,7 @@
 !/scripts/build_ugreenctl.py
 !/scripts/build_fpk_remote.py
 !/scripts/preview_web.py
+!/scripts/build_unraid.py
 /dist/
 *_diag.txt
 *_result.txt

@@ -5,6 +5,18 @@
 }
 
 body { font-family: var(--newui-font-sans); }
+.unraid [hidden] { display: none !important; }
+.readonly-banner { display: flex; align-items: flex-start; gap: 12px; max-width: 1480px; margin: 0 auto 20px; padding: 16px 20px; border: 1px solid #b9cee5; border-radius: 16px; background: #edf5fd; color: #284b70; }
+.readonly-banner p { margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+.readonly-panel { padding: 26px; }
+.readonly-panel p { line-height: 1.7; }
+.mode-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.hardware-overview { margin-bottom: 20px; }
+.hardware-overview > article { min-width: 0; }
+.hardware-overview .hardware-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hardware-overview .hardware-facts strong { overflow-wrap: anywhere; }
+.hardware-temperatures { grid-column: 1 / -1; }
+
 .page-header h1, .section-heading h2, .surface-heading h2 { font-family: var(--newui-font-display); }
 
 .react-view { width: 100%; max-width: 1480px; margin: 0 auto; animation: view-in 220ms ease; }
@@ -219,6 +231,15 @@ body { font-family: var(--newui-font-sans); }
   font-size: 15px;
   animation: fan-telemetry-spin 0.8s linear infinite;
 }
+
+.capability-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.capability-fields:disabled { opacity: .65; }
+.service-surface, .serial-map-surface, .led-behavior-surface { padding: 24px; }
+.service-surface, .serial-map-surface { grid-column: 1 / -1; }
+.service-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.led-behavior-surface { margin-bottom: 20px; }
+.serial-input { width: min(100%, 360px); padding: 10px 12px; border: 1px solid var(--line, #8886); border-radius: 10px; background: transparent; color: inherit; }
+.mapping-evidence { display: block; margin-top: 4px; font-size: 12px; opacity: .7; }
 
 @keyframes fan-telemetry-spin {
   to { transform: rotate(360deg); }

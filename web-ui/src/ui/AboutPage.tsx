@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
+import { platform } from '../lib/platform';
 import { updateState } from '../lib/version';
 import { readmeInlineTokens, readmeRepositoryUrl } from '../lib/readme';
 
@@ -116,7 +117,7 @@ export function AboutPage({ hidden, info, onToast }: { hidden: boolean; info: Ab
     }
   }, []);
   useEffect(() => {
-    if (hidden) return;
+    if (hidden || platform.unraid) return;
     void checkUpdate().catch(() => {});
     void loadReadme().catch(() => {});
   }, [checkUpdate, hidden, loadReadme]);
@@ -128,6 +129,17 @@ export function AboutPage({ hidden, info, onToast }: { hidden: boolean; info: Ab
   const currentVersion = String(update?.current_version || info?.version || '—').replace(/^v/i, '');
   const updateStatus = updateState(currentVersion, update?.latest_version, update?.reachable);
   const sourceUrl = readme?.source_url || info?.readme_url || `${repositoryUrl}/blob/main/README.md`;
+
+  if (platform.unraid) return <section className="react-view" hidden={hidden} aria-label="关于">
+    <div className="about-layout">
+      <article className="glass-surface about-hero-surface">
+        <img src="./images/logo.png?v=2.1.0-toolbox" alt="UGreen Control" className="about-logo" width="112" height="112" />
+        <div className="about-brand-copy"><span className="section-kicker">UNRAID PORT · PHASE {platform.phase2 ? '2' : '1'}</span><h2>UGreen Control · Unraid port</h2><p>{platform.phase2 ? '基于原 React 界面的 Unraid 第二阶段移植，提供 LED 配置、灯光模式、活动阈值、服务启停与延迟自启；硬件监控保持只读。' : '基于原 React 界面的 Unraid 第一阶段移植，提供只读概览、设备识别、日志查看与诊断下载。'}</p><div className="about-badges"><span>v{info?.version || '—'}</span><span>AGPL-3.0</span><span>上游作者 BearHero / BearHero520</span></div></div>
+      </article>
+      <article className="glass-surface about-update-surface"><div className="section-heading"><div><span className="section-kicker">PORT STATUS</span><h2>{platform.phase2 ? '第二阶段范围' : '第一阶段范围'}</h2></div><span className="soft-badge">{platform.phase2 ? '仅 LED 控制' : '只读'}</span></div><p className="surface-help">{platform.phase2 ? 'LED 写入统一经随包 CLI 与灯控服务；BIOS、风扇、机型切换、写协议、驱动安装及日志清理尚未接入。' : '灯光、活动策略、服务启停、配置保存和 BIOS 写操作尚未接入。不会接管现有硬件控制。'}</p><p className="surface-help">Unraid 插件更新尚未接入；此移植不提供 fnOS FPK 下载或升级入口。</p></article>
+      <article className="glass-surface readme-surface"><div className="section-heading"><div><span className="section-kicker">UPSTREAM & LICENSE</span><h2>上游与开源许可</h2></div></div><p className="surface-help">上游项目 UGreen-Control，作者 BearHero520（BearHero）。移植保留上游署名，并遵循 AGPL-3.0；再分发与修改版本应保留版权及许可声明并提供相应源码。</p><a className="secondary-button" href={repositoryUrl} target="_blank" rel="noopener noreferrer"><i className="bi bi-github" aria-hidden="true" />上游源码</a></article>
+    </div>
+  </section>;
 
   return <section className="react-view" hidden={hidden} aria-label="关于">
     <div className="about-layout">

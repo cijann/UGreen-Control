@@ -1,1 +1,6 @@
 node_modules/
+dist/
+dist-unraid/
+dist-fnos-check/
+dist-phase2/
+dist-phase1-check/

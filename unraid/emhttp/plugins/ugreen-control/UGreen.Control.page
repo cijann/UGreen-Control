@@ -1,0 +1,8 @@
+Menu="Utilities"
+Title="UGreen Control"
+Icon="sliders"
+Markdown="false"
+---
+<?php
+require_once '/usr/local/emhttp/plugins/ugreen-control/page.php';
+?>
