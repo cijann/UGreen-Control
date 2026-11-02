@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/service.php';
+require_once __DIR__ . '/bios.php';
 
 function ug_disks(): array { return ug_ini(ug_path('emhttp') . '/disks.ini'); }
 function ug_serial(array $disk, string $base): string {
@@ -227,6 +228,7 @@ function ug_daemon(string $action, string $generation): int {
         ug_json_write('led-cache', []);
         ug_state_for($generation, ['state' => 'running', 'error' => null]);
         ug_log('service.start', 'LED 服务开始');
+        try { ug_bios_restore(); } catch (Throwable $e) { ug_log('bios.restore_error', $e->getMessage()); }
         $previous = []; $lastActivity = []; $net = null; $mapping = []; $disks = [];
         $lastRefresh = 0.0; $seenRemap = null; $lastTick = null; $mapConfig = null;
         while (ug_allowed($generation)) {

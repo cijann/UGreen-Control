@@ -84,7 +84,7 @@ echo "UGreen Control removed; cached packages and saved configuration retained."
 """
 
 def build_ui() -> None:
-    env = {**os.environ, 'VITE_PLATFORM': 'unraid', 'VITE_UNRAID_PHASE': '2'}
+    env = {**os.environ, 'VITE_PLATFORM': 'unraid', 'VITE_UNRAID_PHASE': '3'}
     subprocess.run(
         ['npm', 'run', 'build', '--', '--outDir', str(DIST_UNRAID)],
         cwd=str(WEB_UI), env=env, check=True,
@@ -126,6 +126,22 @@ def build_txz(version: str, tmp: Path) -> Path:
     shutil.copy2(cli, target / 'server/bin/ugreen_leds_cli')
     shutil.copy2(ROOT / 'server/vendor/UGREEN-NAS-Hardware/led/LICENSE.upstream-led', target / 'server/bin/LICENSE.upstream-led')
 
+    # Phase 3 payload: pinned ugreenctl and the DX4600 model plugin.
+    ugreenctl = ROOT / 'server/bin/ugreenctl'
+    if hashlib.sha256(ugreenctl.read_bytes()).hexdigest() != '5388eaeef1d399153cf73532b75d62ef7cc422832aaf1256f76bd2b371e4bef9':
+        raise RuntimeError('ugreenctl SHA256 mismatch')
+    shutil.copy2(ugreenctl, target / 'server/bin/ugreenctl')
+    model = ROOT / 'server/lib/ugreenctl/models/dx4600.so'
+    if hashlib.sha256(model.read_bytes()).hexdigest() != '12648ab2af69a99f782cc1cb5d65dd7299a5c19b72e6eb65e494cf261a1bc483':
+        raise RuntimeError('dx4600.so SHA256 mismatch')
+    (target / 'server/lib/ugreenctl/models').mkdir(parents=True, exist_ok=True)
+    shutil.copy2(model, target / 'server/lib/ugreenctl/models/dx4600.so')
+    (target / 'server/lib/ugreenctl/upstream').mkdir(parents=True, exist_ok=True)
+    for upstream in ('LICENSE', 'THIRD_PARTY_NOTICES.md'):
+        src = ROOT / 'server/lib/ugreenctl/upstream' / upstream
+        if src.is_file():
+            shutil.copy2(src, target / 'server/lib/ugreenctl/upstream' / upstream)
+
     (pkg / 'usr/local/emhttp/plugins/ugreen-control/version.txt').write_text(version + '\n')
     shutil.copy2(ROOT / 'LICENSE', pkg / 'usr/local/emhttp/plugins/ugreen-control/LICENSE')
 
@@ -150,7 +166,7 @@ def build_txz(version: str, tmp: Path) -> Path:
                 info = tar.gettarinfo(str(full), arcname=str(arcname))
                 info.uid = info.gid = 0
                 info.uname = info.gname = 'root'
-                info.mode = 0o755 if fname.endswith('.sh') or fname == 'ugreen_leds_cli' or 'event' in arcname.parts else 0o644
+                info.mode = 0o755 if fname.endswith('.sh') or fname in ('ugreen_leds_cli', 'ugreenctl') or 'event' in arcname.parts else 0o644
                 with full.open('rb') as data:
                     tar.addfile(info, data)
     return txz_path

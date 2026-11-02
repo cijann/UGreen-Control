@@ -38,12 +38,15 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const normalized = path.startsWith('/') ? path : `/${path}`;
   const writing = (options.method ?? 'GET') !== 'GET' || options.body !== undefined;
   const allowedWrites = ['/settings', '/mode', '/daemon/start', '/daemon/stop', '/remap', '/autostart'];
-  if (platform.unraid && (normalized === '/bios' || normalized.startsWith('/bios/'))) {
-    const error = new Error('Unraid BIOS / 风扇控制尚未接入，仅提供只读说明') as ApiError;
+  const biosAllowed = platform.phase3 && (normalized === '/bios' || normalized.startsWith('/bios/'));
+  if (platform.unraid && !platform.phase3 && (normalized === '/bios' || normalized.startsWith('/bios/'))) {
+    const error = new Error('Unraid BIOS / 风扇控制尚未接入') as ApiError;
     error.status = 405; error.path = path; throw error;
   }
-  if ((platform.readOnly && writing) || (platform.phase2 && writing && !allowedWrites.includes(normalized))) {
-    const error = new Error(platform.readOnly ? readOnlyMessage : 'Unraid 第二阶段不支持此写入操作') as ApiError;
+  if ((platform.readOnly && writing)
+    || (platform.phase2 && writing && !allowedWrites.includes(normalized))
+    || (platform.phase3 && writing && !allowedWrites.includes(normalized) && !biosAllowed)) {
+    const error = new Error(platform.readOnly ? readOnlyMessage : 'Unraid 当前阶段不支持此写入操作') as ApiError;
     error.status = 405;
     error.path = path;
     throw error;
@@ -51,7 +54,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const requestId = createRequestId();
   const headers: Record<string, string> = { 'X-Request-ID': requestId };
   if (options.body !== undefined) headers['Content-Type'] = options.contentType || 'text/plain';
-  if (platform.phase2 && options.method === 'POST') headers['X-CSRF-Token'] = await sessionToken();
+  if ((platform.phase2 || platform.phase3) && options.method === 'POST') headers['X-CSRF-Token'] = await sessionToken();
 
   const response = await fetch(`${platform.apiBase}${path.startsWith('/') ? path : `/${path}`}${options.query ? `?${options.query}` : ''}`, {
     method: options.method ?? 'GET',
@@ -73,8 +76,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     throw error;
   }
 
-  if (!response.ok || data.ok === false || (platform.phase2 && writing && data.ok !== true)) {
-    if (platform.phase2 && (response.status === 401 || response.status === 403)) csrfToken = undefined;
+  if (!response.ok || data.ok === false || ((platform.phase2 || platform.phase3) && writing && data.ok !== true)) {
+    if ((platform.phase2 || platform.phase3) && (response.status === 401 || response.status === 403)) csrfToken = undefined;
     const error = new Error(data.error || `请求失败（HTTP ${response.status}）`) as ApiError;
     error.requestId = response.headers.get('X-Request-ID') || requestId;
     error.status = response.status;

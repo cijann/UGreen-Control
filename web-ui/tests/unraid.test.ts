@@ -8,10 +8,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { platformConfig } from '../src/lib/platform.ts';
 
 test('平台默认保留 fnOS API，Unraid 使用 PHP PATH_INFO', () => {
-  assert.deepEqual(platformConfig(), { unraid: false, phase2: false, readOnly: false, capabilities: { lighting: true, bios: true, hardwareSettings: true, logWrites: true }, name: 'fnOS', apiBase: '/cgi/ThirdParty/App.Native.UGreenLED/api.cgi' });
-  assert.deepEqual(platformConfig('unraid'), { unraid: true, phase2: false, readOnly: true, capabilities: { lighting: false, bios: false, hardwareSettings: false, logWrites: false }, name: 'Unraid', apiBase: '/plugins/ugreen-control/api.php' });
+  assert.deepEqual(platformConfig(), { unraid: false, phase2: false, phase3: false, readOnly: false, capabilities: { lighting: true, bios: true, hardwareSettings: true, logWrites: true }, name: 'fnOS', apiBase: '/cgi/ThirdParty/App.Native.UGreenLED/api.cgi' });
+  assert.deepEqual(platformConfig('unraid'), { unraid: true, phase2: false, phase3: false, readOnly: true, capabilities: { lighting: false, bios: false, hardwareSettings: false, logWrites: false }, name: 'Unraid', apiBase: '/plugins/ugreen-control/api.php' });
   assert.equal(platformConfig('unraid', '2').capabilities.lighting, true);
   assert.equal(platformConfig('unraid', '2').capabilities.bios, false);
+  assert.equal(platformConfig('unraid', '2').phase2, true);
+  assert.equal(platformConfig('unraid', '3').capabilities.lighting, true);
+  assert.equal(platformConfig('unraid', '3').capabilities.bios, true);
+  assert.equal(platformConfig('unraid', '3').phase3, true);
+  assert.equal(platformConfig('unraid', '3').readOnly, false);
   assert.equal(platformConfig('fnos', '2').phase2, false);
 });
 

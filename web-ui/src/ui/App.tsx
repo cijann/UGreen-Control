@@ -7,6 +7,7 @@ import { boundedInt, parseIni, type IniData } from '../lib/ini';
 import { AboutPage, type AboutInfo } from './AboutPage';
 import { ActivityPage } from './ActivityPage';
 import { BiosPage } from './BiosPage';
+import { Phase3Page } from './Phase3Page';
 import { DevicesPage } from './DevicesPage';
 import { LightingPage } from './LightingPage';
 import { OverviewPage, type MappingItem, type StatusData } from './OverviewPage';
@@ -73,6 +74,7 @@ function lightingSettingsLines(settings: IniData) {
 }
 
 export function App() {
+  const writablePhase = platform.phase2 || platform.phase3;
   const [route, setRoute] = useState<Route>(() => normalizeRoute(location.hash.slice(1)));
   const [status, setStatus] = useState<StatusData | null>(null);
   const [mapping, setMapping] = useState<MappingItem[]>([]);
@@ -96,7 +98,7 @@ export function App() {
     try {
       const [nextStatus, nextMapping, nextHardware, nextBios] = await settledValues([api<StatusData>('/status', options), api<{ mapping?: MappingItem[] }>('/mapping', options), api<HardwareData>('/hardware/status', options), platform.capabilities.bios ? api<BiosData>('/bios/status', options) : Promise.resolve(null)] as const);
       const daemonState = nextStatus.daemon || nextStatus.service?.state || nextStatus.daemon_state?.state;
-      if (platform.phase2 && (nextStatus.ok !== true || !['running', 'waiting', 'queued', 'stopped', 'error'].includes(daemonState || ''))) throw new Error('服务未返回有效状态');
+      if (writablePhase && (nextStatus.ok !== true || !['running', 'waiting', 'queued', 'stopped', 'error'].includes(daemonState || ''))) throw new Error('服务未返回有效状态');
       setStatus({ ...nextStatus, daemon: daemonState }); setMapping(nextMapping.mapping || []); setHardware(nextHardware); setBios(nextBios); setConnected(true);
     } catch (error) { setConnected(false); setStatus(null); throw error; } finally { window.clearTimeout(timeout); setRefreshing(false); }
   }));
@@ -107,7 +109,7 @@ export function App() {
   const loadSettings = useCallback(async () => {
     try {
       const data = await api<{ raw?: string }>('/settings');
-      if (platform.phase2 && typeof data.raw !== 'string') throw new Error('服务未返回有效设置');
+      if (writablePhase && typeof data.raw !== 'string') throw new Error('服务未返回有效设置');
       setSettings(parseIni(data.raw || '')); setSettingsLoaded(true);
     } catch (error) { setSettingsLoaded(false); throw error; }
   }, []);
@@ -117,7 +119,7 @@ export function App() {
   useEffect(() => () => { if (toastTimer.current) window.clearTimeout(toastTimer.current); }, []);
 
   const navigate = useCallback((next: Route) => { setRoute(next); if (location.hash !== `#${next}`) location.hash = next; document.getElementById('appMain')?.scrollTo({ top: 0, behavior: 'instant' }); }, []);
-  const lightingAvailable = !platform.unraid || (platform.phase2 && connected && settingsLoaded && hardware.capabilities?.lighting === true);
+  const lightingAvailable = !platform.unraid || (writablePhase && connected && settingsLoaded && hardware.capabilities?.lighting === true);
   const saveSettings = useCallback(async (lines: string[], successMessage: string) => {
     if (!lightingAvailable) throw new Error('服务未连接或尚未确认 LED 能力，无法保存');
     await api('/settings', { method: 'POST', body: lines.join('\n') });
@@ -130,7 +132,7 @@ export function App() {
     try {
       await api('/mode', { method: 'POST', query: `mode=${encodeURIComponent(mode)}`, body: '' });
       await refreshOnce();
-      showToast(platform.phase2 ? '模式已保存，灯光执行状态请查看服务状态' : `已切换到${modeLabels[mode]}`);
+      showToast(writablePhase ? '模式已保存，灯光执行状态请查看服务状态' : `已切换到${modeLabels[mode]}`);
     } catch (error) { showToast(error instanceof Error ? error.message : '模式切换失败', 'err'); } finally { setModeBusy(false); }
   }, [lightingAvailable, modeBusy, refreshOnce, showToast]);
   const saveLighting = useCallback(async () => {
@@ -150,17 +152,17 @@ export function App() {
     <main className="app-main" id="appMain">
       <PageHeader key={route} route={route} running={running} state={state} refreshing={refreshing} onRefresh={() => void refresh(true)} />
       {isReadOnly && <div className="readonly-banner" role="note"><i className="bi bi-shield-lock" aria-hidden="true" /><div><strong>Unraid port · 第一阶段 · 只读</strong><p>{readOnlyMessage}</p></div></div>}
-      {platform.phase2 && <div className="readonly-banner" role="note"><i className="bi bi-lightbulb" aria-hidden="true" /><div><strong>Unraid port · 第二阶段 · LED 控制</strong><p>{phase2Message}</p></div></div>}
+      {writablePhase && <div className="readonly-banner" role="note"><i className="bi bi-lightbulb" aria-hidden="true" /><div><strong>Unraid port · {platform.phase3 ? '第三阶段' : '第二阶段'} · {platform.phase3 ? 'LED 与 BIOS 能力' : 'LED 控制'}</strong><p>{platform.phase3 ? '第三阶段在 LED 基础上接入 BIOS 能力：风扇与来电启动因硬件占用保持只读，WOL 与 RTC 定时唤醒可配置。' : phase2Message}</p></div></div>}
       <div className={`action-message${toast ? ` visible ${toast.type}` : ''}`} aria-live="polite">{toast?.message}</div>
       <OverviewPage hidden={route !== 'overview'} status={status} mapping={mapping} hardware={hardware} onDevices={() => navigate('devices')} />
       {isReadOnly ? ((route === 'lighting' || route === 'activity') && <UnavailablePanel route={route} />) : <>
-        {platform.phase2 && !lightingAvailable && (route === 'lighting' || route === 'activity') && <p role="status">等待服务连接、设置读取与 LED 能力确认；暂不可写入。</p>}
+        {writablePhase && !lightingAvailable && (route === 'lighting' || route === 'activity') && <p role="status">等待服务连接、设置读取与 LED 能力确认；暂不可写入。</p>}
         <fieldset disabled={!lightingAvailable} className="capability-fields" hidden={route !== 'lighting' && route !== 'activity'}>
           <LightingPage hidden={route !== 'lighting'} settings={settings} power26={power26} onSettingsChange={setSettings} onSave={saveLighting} onPower26Apply={applyPower26} onToast={showToast} />
           <ActivityPage hidden={route !== 'activity'} settings={settings} onSettingsChange={setSettings} onSave={saveSettings} onToast={showToast} />
         </fieldset>
       </>}
-      {platform.capabilities.bios ? <BiosPage hidden={route !== 'bios'} bios={bios} hardware={hardware} onRefresh={refresh} onToast={showToast} /> : route === 'bios' && <UnavailablePanel route="bios" />}
+      {platform.phase3 ? <Phase3Page hidden={route !== 'bios'} onToast={showToast} /> : platform.capabilities.bios ? <BiosPage hidden={route !== 'bios'} bios={bios} hardware={hardware} onRefresh={refresh} onToast={showToast} /> : route === 'bios' && <UnavailablePanel route="bios" />}
       <DevicesPage hidden={route !== 'devices'} mapping={mapping} hardware={hardware} settings={settings} status={status} writable={lightingAvailable} onSettingsChange={setSettings} onSaveSettings={saveSettings} onLoadSettings={loadSettings} onRefresh={refreshOnce} onToast={showToast} />
       <AboutPage hidden={route !== 'about'} info={aboutInfo} onToast={showToast} />
     </main>

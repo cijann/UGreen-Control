@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/lighting.php';
+require_once __DIR__ . '/bios.php';
 
 function ug_session_valid(array $session): bool {
     $login = $session['unraid_login'] ?? null;
@@ -39,7 +40,7 @@ function ug_only(array $params, array $keys): void {
     if (array_diff(array_keys($params), $keys)) throw new InvalidArgumentException('包含不允许的字段');
 }
 function ug_http_write(string $path, string $body): array {
-    if ($path === 'bios' || str_starts_with($path, 'bios/')) throw new UgHttpError('第二阶段不支持 BIOS/风扇写入', 405);
+    if ($path === 'bios' || str_starts_with($path, 'bios/')) return ug_bios_write($path, $body);
     if ($path === 'settings') {
         $patch = ug_parse_settings($body);
         $cfg = ug_patch(ug_settings(), $patch);

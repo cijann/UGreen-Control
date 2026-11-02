@@ -44,6 +44,7 @@ function floatval_1dp_or_null(?string $v): ?float {
 }
 
 require_once __DIR__ . '/lib/http.php';
+require_once __DIR__ . '/lib/bios.php';
 
 // 只允许 CLI 预定义 fixture；HTTP 永远不能启用测试入口。
 if (PHP_SAPI === 'cli' && defined('UGREEN_API_TEST_ONLY') && UGREEN_API_TEST_ONLY === true) return;
@@ -395,7 +396,7 @@ function route_hardware_status(): array {
 }
 
 function route_bios_status(): array {
-    return ['ok' => true, 'supported' => false, 'capabilities' => ['bios' => false], 'note' => 'Unraid 第二阶段仅支持 LED；BIOS/风扇写入未启用。'];
+    return ug_bios_status();
 }
 
 function route_settings(): array {
